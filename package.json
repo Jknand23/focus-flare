@@ -1,0 +1,91 @@
+{
+  "name": "focusflare",
+  "version": "0.1.0",
+  "description": "Privacy-first Windows desktop application for intelligent activity tracking and focus management",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder",
+    "build:dev": "tsc && vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:pack": "electron-builder",
+    "electron:dist": "npm run build && electron-builder --publish=never",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 10",
+    "rebuild": "npx electron-rebuild",
+    "test-ai": "tsx scripts/test-ai-classification.ts",
+    "test-ai-detailed": "tsx scripts/test-ai-classification.ts --detailed"
+  },
+  "keywords": [
+    "electron",
+    "desktop",
+    "activity-tracking",
+    "focus",
+    "privacy",
+    "windows"
+  ],
+  "author": "FocusFlare Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^24.0.8",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.6",
+    "tsx": "^4.7.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.2.0",
+    "vite-plugin-electron": "^0.28.6",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-select": "^2.2.5",
+    "active-win": "^8.0.0",
+    "autoprefixer": "^10.4.18",
+    "better-sqlite3": "^9.2.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.344.0",
+    "postcss": "^8.4.35",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^3.0.2",
+    "tailwindcss": "^3.4.0",
+    "zustand": "^4.5.0"
+  },
+  "build": {
+    "appId": "com.focusflare.app",
+    "productName": "FocusFlare",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
