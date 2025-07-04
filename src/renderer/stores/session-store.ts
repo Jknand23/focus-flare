@@ -390,12 +390,14 @@ export const useSessionStore = create<SessionStore>()(
         const currentFilter = get().dateFilter;
         const newFilter = { startDate, endDate };
         
-        set({ dateFilter: newFilter });
-        
-        // Refetch if date range changed
+        // Only refetch if date range changed
         if (shouldRefetchSessions(currentFilter, newFilter)) {
           if (startDate && endDate) {
+            // fetchSessionsByDateRange will update the dateFilter, so we don't need to set it here
             get().fetchSessionsByDateRange(startDate, endDate);
+          } else {
+            // If dates are null, just update the filter without fetching
+            set({ dateFilter: newFilter });
           }
         }
       },

@@ -13,6 +13,12 @@
 
 import { useEffect, useState } from 'react';
 import { useSettingsStore, useMonitoringState, useWorkSchedule, useThemeSettings } from '@/renderer/stores/settings-store';
+import WorkflowSettings from './WorkflowSettings';
+import { ColorCustomizationTab } from './ColorCustomizationTab';
+import { SessionCategoriesTab } from './SessionCategoriesTab';
+import { DashboardLayoutTab } from './DashboardLayoutTab';
+import { ImportExportTab } from './ImportExportTab';
+import { WindowsIntegrationsTab } from './WindowsIntegrationsTab';
 
 // === COMPONENT TYPES ===
 
@@ -108,7 +114,13 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const tabs = [
     { id: 'monitoring', label: 'Monitoring', icon: '🔍' },
     { id: 'schedule', label: 'Work Schedule', icon: '⏰' },
+    { id: 'workflows', label: 'Workflows', icon: '🔧' },
+    { id: 'integrations', label: 'Windows Apps', icon: '🪟' },
     { id: 'appearance', label: 'Appearance', icon: '🎨' },
+    { id: 'colors', label: 'Colors & Themes', icon: '🎭' },
+    { id: 'categories', label: 'Session Categories', icon: '📝' },
+    { id: 'dashboard', label: 'Dashboard Layout', icon: '📊' },
+    { id: 'import-export', label: 'Import/Export', icon: '📦' },
     { id: 'privacy', label: 'Privacy', icon: '🔒' }
   ];
 
@@ -250,7 +262,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       <div>
                         <div className="font-medium text-gray-900">Morning Nudge</div>
                         <div className="text-sm text-gray-600">
-                          Gentle reminder about yesterday's activity summary
+                          Gentle reminder about yesterday&apos;s activity summary
                         </div>
                       </div>
                       <input
@@ -328,6 +340,69 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               </div>
             )}
 
+            {/* Workflows Tab */}
+            {activeTab === 'workflows' && (
+              <WorkflowSettings />
+            )}
+
+            {/* Windows Integrations Tab */}
+            {activeTab === 'integrations' && (
+              <WindowsIntegrationsTab
+                config={{
+                  calendar: {
+                    enabled: false,
+                    includedCalendars: [],
+                    excludedCalendars: [],
+                    lookAheadDays: 7,
+                    lookBehindDays: 1,
+                    includeAllDayEvents: true,
+                    minEventDuration: 0
+                  },
+                  fileExplorer: {
+                    enabled: false,
+                    monitoredDirectories: [],
+                    excludedDirectories: [
+                      'C:\\Windows',
+                      'C:\\Program Files',
+                      'C:\\Program Files (x86)',
+                      'C:\\$Recycle.Bin'
+                    ],
+                    includedExtensions: ['.txt', '.md', '.doc', '.docx', '.js', '.ts', '.py'],
+                    excludedExtensions: ['.tmp', '.log', '.cache'],
+                    trackFileOpens: true,
+                    trackFileModifications: true,
+                    trackFileCreations: true,
+                    minFileSize: 0,
+                    maxFileSize: 100 * 1024 * 1024
+                  },
+                  global: {
+                    enabled: false,
+                    dataRetentionDays: 30,
+                    syncIntervalMinutes: 15,
+                    privacyMode: true
+                  }
+                }}
+                onConfigUpdate={(config) => {
+                  console.log('Windows integrations config updated:', config);
+                  // TODO: Implement proper config persistence
+                }}
+                integrationStatus={{
+                  calendar: {
+                    name: 'Windows Calendar',
+                    available: true,
+                    enabled: false,
+                    healthScore: 100
+                  },
+                  fileExplorer: {
+                    name: 'File Explorer',
+                    available: true,
+                    enabled: false,
+                    healthScore: 100
+                  }
+                }}
+              />
+            )}
+
             {/* Appearance Tab */}
             {activeTab === 'appearance' && (
               <div className="space-y-6">
@@ -389,6 +464,26 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Colors & Themes Tab */}
+            {activeTab === 'colors' && (
+              <ColorCustomizationTab />
+            )}
+
+            {/* Session Categories Tab */}
+            {activeTab === 'categories' && (
+              <SessionCategoriesTab />
+            )}
+
+            {/* Dashboard Layout Tab */}
+            {activeTab === 'dashboard' && (
+              <DashboardLayoutTab />
+            )}
+
+            {/* Import/Export Tab */}
+            {activeTab === 'import-export' && (
+              <ImportExportTab />
             )}
 
             {/* Privacy Tab */}

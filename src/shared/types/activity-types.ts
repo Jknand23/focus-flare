@@ -10,6 +10,115 @@
  * @since 0.1.0
  */
 
+// === ENHANCED ACTIVITY MONITORING TYPES ===
+
+/**
+ * Activity engagement levels for enhanced monitoring
+ */
+export type ActivityLevel = 'active' | 'passive' | 'idle' | 'background';
+
+/**
+ * Per-app activity state for enhanced monitoring
+ */
+export interface AppActivityState {
+  /** Application name */
+  appName: string;
+  /** Current activity level */
+  activityLevel: ActivityLevel;
+  /** Last user interaction timestamp */
+  lastUserInteraction: Date;
+  /** Last system activity timestamp */
+  lastSystemActivity: Date;
+  /** Total active time in current session */
+  totalActiveTime: number;
+  /** Total idle time in current session */
+  totalIdleTime: number;
+  /** Number of user interactions in current session */
+  interactionCount: number;
+  /** Whether app is currently processing (CPU/network activity) */
+  isProcessing: boolean;
+  /** Whether app is playing media */
+  isPlayingMedia: boolean;
+  /** Current session start time */
+  sessionStart: Date;
+}
+
+/**
+ * System resource usage information
+ */
+export interface SystemResourceUsage {
+  /** Process ID */
+  pid: number;
+  /** Application name */
+  appName: string;
+  /** CPU usage percentage */
+  cpuUsage: number;
+  /** Memory usage in MB */
+  memoryUsage: number;
+  /** Network activity (bytes/second) */
+  networkActivity: number;
+  /** Disk I/O activity (bytes/second) */
+  diskActivity: number;
+  /** Whether process is actively using resources */
+  isActive: boolean;
+}
+
+/**
+ * User interaction event types
+ */
+export type InteractionType = 'keyboard' | 'mouse' | 'scroll' | 'click' | 'file_operation';
+
+/**
+ * User interaction event data
+ */
+export interface UserInteractionEvent {
+  /** Type of interaction */
+  type: InteractionType;
+  /** Application receiving the interaction */
+  appName: string;
+  /** Timestamp of interaction */
+  timestamp: Date;
+  /** Additional metadata */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Media playback state
+ */
+export type MediaState = 'playing' | 'paused' | 'none';
+
+/**
+ * Application focus state
+ */
+export type AppFocusState = 'foreground' | 'background' | 'minimized';
+
+/**
+ * Activity context for enhanced AI classification
+ */
+export interface ActivityContext {
+  /** Application focus state */
+  focusState: AppFocusState;
+  /** Media playback state */
+  mediaState: MediaState;
+  /** Whether audio is playing */
+  audioPlaying: boolean;
+  /** Whether video is playing */
+  videoPlaying: boolean;
+  /** Resource usage context */
+  resourceUsage: {
+    cpuUsage: number;
+    memoryUsage: number;
+    networkActivity: number;
+    diskActivity: number;
+  };
+  /** User interaction patterns */
+  interactionPatterns: {
+    recentInteractions: number;
+    timeSinceLastInteraction: number;
+    usagePattern: 'active' | 'passive' | 'background' | 'intermittent';
+  };
+}
+
 // === CORE ACTIVITY DATA ===
 
 /**
@@ -26,6 +135,14 @@ export interface RawActivityData {
   windowTitle: string;
   /** Duration of activity in milliseconds */
   duration: number;
+  /** Activity level during this period */
+  activityLevel: ActivityLevel;
+  /** User interaction count during this period */
+  interactionCount: number;
+  /** Whether system was processing during this period */
+  isProcessing: boolean;
+  /** CPU usage percentage during this period */
+  cpuUsage: number;
   /** When this record was created in the database */
   createdAt: Date;
   /** Associated session ID (if classified) */
@@ -50,6 +167,14 @@ export interface ActivityData {
   duration: number;
   /** Formatted duration string (e.g., "5m 30s") */
   formattedDuration: string;
+  /** Activity level during this period */
+  activityLevel: ActivityLevel;
+  /** User interaction count during this period */
+  interactionCount: number;
+  /** Whether system was processing during this period */
+  isProcessing: boolean;
+  /** CPU usage percentage during this period */
+  cpuUsage: number;
   /** Application category (if known) */
   category?: string;
   /** Associated session ID (if classified) */
@@ -109,6 +234,11 @@ export interface SessionData {
   /** When this session was last updated */
   updatedAt: Date;
 }
+
+/**
+ * Type alias for classified session data (same as SessionData)
+ */
+export type ClassifiedSession = SessionData;
 
 /**
  * Session creation input data
@@ -203,6 +333,8 @@ export interface UserSettings {
   aiClassificationEnabled: boolean;
   /** Custom colors for session types */
   sessionColors?: Record<SessionType, string>;
+  /** Custom theme ID (for advanced theming) */
+  customTheme?: string;
 }
 
 /**
@@ -221,6 +353,10 @@ export interface ActivityTableRow {
   app_name: string;
   window_title: string;
   duration: number;
+  activity_level: ActivityLevel;
+  interaction_count: number;
+  is_processing: boolean;
+  cpu_usage: number;
   created_at: string; // ISO string in database
   session_id?: number;
   is_idle?: boolean;
@@ -401,6 +537,293 @@ export interface SessionColorConfig {
   secondary: string;
   /** Text color that contrasts well */
   text: string;
+}
+
+// === MULTI-DAY ANALYSIS TYPES ===
+
+/**
+ * Multi-day timeline data structure
+ */
+export interface MultiDayTimelineData {
+  /** Date for this day's data */
+  date: Date;
+  /** Sessions for this day */
+  sessions: SessionData[];
+  /** Total focus time for the day (in minutes) */
+  totalFocusTime: number;
+  /** Total active time for the day (in minutes) */
+  totalActiveTime: number;
+  /** Whether the day met the focus goal */
+  metFocusGoal: boolean;
+  /** Day of week (0-6, Sunday-Saturday) */
+  dayOfWeek: number;
+}
+
+/**
+ * Pattern recognition result for recurring activities
+ */
+export interface RecurringPattern {
+  /** Session type that recurs */
+  sessionType: SessionType;
+  /** Time range when pattern typically occurs */
+  timeRange: {
+    startHour: number;
+    endHour: number;
+  };
+  /** Days of week when pattern occurs (0-6) */
+  daysOfWeek: number[];
+  /** Frequency score (0-1, higher means more consistent) */
+  frequency: number;
+  /** Average duration of sessions in this pattern */
+  averageDuration: number;
+  /** Total occurrences found */
+  occurrences: number;
+}
+
+/**
+ * Focus streak information
+ */
+export interface FocusStreak {
+  /** Current streak length in days */
+  currentStreak: number;
+  /** Longest streak achieved */
+  longestStreak: number;
+  /** Last date the streak was active */
+  lastStreakDate: Date | null;
+  /** Whether today continues the streak */
+  todayCount: boolean;
+  /** Focus goal target in minutes */
+  focusGoalMinutes: number;
+}
+
+/**
+ * Daily summary statistics
+ */
+export interface DailySummary {
+  /** Date for this summary */
+  date: Date;
+  /** Total focus time (focused-work + research) in minutes */
+  focusTime: number;
+  /** Total active time in minutes */
+  activeTime: number;
+  /** Total break time in minutes */
+  breakTime: number;
+  /** Total entertainment time in minutes */
+  entertainmentTime: number;
+  /** Number of focus sessions */
+  focusSessionCount: number;
+  /** Average focus session duration in minutes */
+  averageFocusSession: number;
+  /** Longest focus session in minutes */
+  longestFocusSession: number;
+  /** Whether day met focus goal */
+  metFocusGoal: boolean;
+  /** Productivity score (0-100) */
+  productivityScore: number;
+}
+
+/**
+ * Weekly summary statistics
+ */
+export interface WeeklySummary {
+  /** Week start date (Monday) */
+  weekStart: Date;
+  /** Week end date (Sunday) */
+  weekEnd: Date;
+  /** Daily summaries for the week */
+  dailySummaries: DailySummary[];
+  /** Total focus time for the week */
+  totalFocusTime: number;
+  /** Average daily focus time */
+  averageDailyFocus: number;
+  /** Days that met focus goal */
+  daysMetGoal: number;
+  /** Weekly productivity score */
+  weeklyProductivityScore: number;
+  /** Most productive day */
+  mostProductiveDay: DailySummary;
+  /** Least productive day */
+  leastProductiveDay: DailySummary;
+}
+
+/**
+ * Comparative analysis between two periods
+ */
+export interface ComparativeAnalysis {
+  /** Current period summary */
+  currentPeriod: WeeklySummary;
+  /** Previous period summary */
+  previousPeriod: WeeklySummary;
+  /** Focus time change (positive = improvement) */
+  focusTimeChange: number;
+  /** Focus time change percentage */
+  focusTimeChangePercent: number;
+  /** Goal achievement change */
+  goalAchievementChange: number;
+  /** Productivity score change */
+  productivityScoreChange: number;
+  /** Trend direction */
+  trendDirection: 'improving' | 'declining' | 'stable';
+  /** Key insights */
+  insights: string[];
+}
+
+/**
+ * Time range for analysis
+ */
+export interface AnalysisTimeRange {
+  /** Start date */
+  startDate: Date;
+  /** End date */
+  endDate: Date;
+  /** Type of range */
+  type: 'day' | 'week' | 'month' | 'custom';
+}
+
+// === PATTERN ANALYSIS TYPES ===
+
+/**
+ * Focus pattern detection result
+ */
+export interface FocusPattern {
+  /** Pattern type */
+  type: 'peak_hours' | 'optimal_session_length' | 'distraction_trigger' | 'productivity_rhythm';
+  /** Pattern data specific to type */
+  data: {
+    /** Peak focus hours (0-23) */
+    peakHours?: number[];
+    /** Optimal session duration in minutes */
+    optimalDuration?: number;
+    /** Apps that commonly trigger distractions */
+    triggerApps?: string[];
+    /** Weekly productivity rhythm */
+    weeklyPattern?: number[];
+  };
+  /** Confidence score (0-1) */
+  confidence: number;
+  /** Frequency of occurrence */
+  frequency: number;
+  /** Sample size used for analysis */
+  sampleSize: number;
+  /** When pattern was identified */
+  identifiedAt: Date;
+}
+
+/**
+ * Distraction pattern analysis result
+ */
+export interface DistractionPattern {
+  /** Distraction trigger (app or activity) */
+  trigger: string;
+  /** Average distraction duration in minutes */
+  averageDuration: number;
+  /** Frequency of distraction per day */
+  frequencyPerDay: number;
+  /** Time of day when distraction commonly occurs */
+  commonTimeRanges: Array<{ start: number; end: number }>;
+  /** Context when distraction occurs */
+  context: {
+    /** Previous activity before distraction */
+    previousActivity: string;
+    /** Session type when distraction occurs */
+    sessionType: SessionType;
+    /** Duration of focus before distraction */
+    focusDurationBefore: number;
+  };
+  /** Severity score (0-1, higher is more disruptive) */
+  severity: number;
+}
+
+/**
+ * Productivity trend analysis result
+ */
+export interface ProductivityTrend {
+  /** Time period analyzed */
+  period: 'daily' | 'weekly' | 'monthly';
+  /** Trend direction */
+  direction: 'improving' | 'declining' | 'stable';
+  /** Confidence in trend direction */
+  confidence: number;
+  /** Metrics analyzed */
+  metrics: {
+    /** Focus time trend */
+    focusTime: {
+      current: number;
+      previous: number;
+      change: number;
+      changePercent: number;
+    };
+    /** Session quality trend */
+    sessionQuality: {
+      current: number;
+      previous: number;
+      change: number;
+      changePercent: number;
+    };
+    /** Distraction rate trend */
+    distractionRate: {
+      current: number;
+      previous: number;
+      change: number;
+      changePercent: number;
+    };
+  };
+  /** Forecast for next period */
+  forecast: {
+    /** Predicted focus time */
+    predictedFocusTime: number;
+    /** Predicted session quality */
+    predictedQuality: number;
+    /** Confidence in forecast */
+    confidence: number;
+  };
+}
+
+/**
+ * Personalized insight with actionable recommendations
+ */
+export interface PersonalizedInsight {
+  /** Insight ID */
+  id: string;
+  /** Insight type */
+  type: 'focus_optimization' | 'distraction_reduction' | 'schedule_adjustment' | 'goal_adjustment';
+  /** Insight title */
+  title: string;
+  /** Detailed description */
+  description: string;
+  /** Actionable recommendations */
+  recommendations: string[];
+  /** Priority level */
+  priority: 'high' | 'medium' | 'low';
+  /** Confidence in insight */
+  confidence: number;
+  /** Supporting data */
+  supportingData: {
+    /** Metrics that support this insight */
+    metrics: Record<string, number>;
+    /** Patterns that support this insight */
+    patterns: string[];
+  };
+  /** When insight was generated */
+  generatedAt: Date;
+}
+
+/**
+ * Complete pattern analysis result
+ */
+export interface PatternAnalysisResult {
+  /** Detected focus patterns */
+  focusPatterns: FocusPattern[];
+  /** Detected distraction patterns */
+  distractionPatterns: DistractionPattern[];
+  /** Productivity trend analysis */
+  productivityTrend: ProductivityTrend | null;
+  /** Personalized insights */
+  insights: PersonalizedInsight[];
+  /** When analysis was performed */
+  analyzedAt: Date;
+  /** Date range analyzed */
+  dateRange: AnalysisTimeRange;
 }
 
 // === EXPORT TYPES ===

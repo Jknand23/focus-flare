@@ -18,8 +18,9 @@ import type {
   SessionType 
 } from '@/shared/types/activity-types';
 import { classifyActivities } from './ollama-client';
-import { getDatabaseConnection } from '../database/connection';
+import { getDatabaseConnection } from '@/main/database/connection';
 import { DEBUG_LOGGING } from '@/shared/constants/app-constants';
+import { processActivitiesWithSmartSessions } from './smart-session-processor';
 
 // === CONSTANTS ===
 
@@ -28,7 +29,7 @@ const SESSION_CONFIG = {
   /** Maximum idle time before creating new session (milliseconds) */
   maxIdleGap: 10 * 60 * 1000, // 10 minutes
   /** Minimum session duration to classify (milliseconds) */
-  minSessionDuration: 2 * 60 * 1000, // 2 minutes
+  minSessionDuration: 30 * 1000, // 30 seconds (reduced from 2 minutes)
   /** Maximum session duration before splitting (milliseconds) */
   maxSessionDuration: 4 * 60 * 60 * 1000, // 4 hours
   /** Minimum activities required for AI classification */
@@ -58,6 +59,8 @@ interface ProcessingOptions {
   config?: Partial<typeof SESSION_CONFIG>;
   /** Additional context for AI classification */
   context?: string;
+  /** Whether to use Smart Session Processing */
+  useSmartSessions?: boolean;
 }
 
 /**
@@ -79,10 +82,12 @@ interface ProcessingStats {
 export class SessionClassifier {
   private config: typeof SESSION_CONFIG;
   private db: any;
+  private useSmartSessions: boolean;
 
   constructor(options: ProcessingOptions = {}) {
     this.config = { ...SESSION_CONFIG, ...options.config };
     this.db = getDatabaseConnection();
+    this.useSmartSessions = options.useSmartSessions || false;
   }
 
   /**
@@ -111,6 +116,30 @@ export class SessionClassifier {
     }
 
     try {
+      // Use smart session processing if enabled
+      if (this.useSmartSessions || options.useSmartSessions) {
+        if (DEBUG_LOGGING) {
+          console.log('🧠 Using Smart Session Processing');
+        }
+        
+        const sessions = await processActivitiesWithSmartSessions(activities, {
+          gracePeriodMs: 30 * 1000, // 30 second grace period
+          minimumBreakIdleMs: 20 * 1000, // 20 second minimum break
+          maximumIdleMs: 5 * 60 * 1000, // 5 minute maximum idle
+          mergeLookbackMs: 15 * 60 * 1000, // 15 minute merge lookback
+        });
+        
+        stats.sessionsCreated = sessions.length;
+        stats.sessionsClassified = sessions.filter(s => s.sessionType !== 'unclear').length;
+        stats.processingTime = Date.now() - startTime;
+        
+        if (DEBUG_LOGGING) {
+          console.log(`🧠 Smart session processing created ${sessions.length} sessions`);
+        }
+        
+        return stats;
+      }
+
       // Sort activities by timestamp
       const sortedActivities = activities.sort((a, b) => 
         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -166,6 +195,15 @@ export class SessionClassifier {
     let currentSession: RawActivityData[] = [];
     let sessionStartTime: Date | null = null;
 
+    if (DEBUG_LOGGING) {
+      console.log(`🔍 Session boundary detection starting with ${activities.length} activities`);
+      if (activities.length > 0) {
+        const timeSpan = new Date(activities[activities.length - 1].timestamp).getTime() - new Date(activities[0].timestamp).getTime();
+        console.log(`   Time span: ${Math.round(timeSpan / 1000 / 60)} minutes`);
+        console.log(`   Apps involved: ${Array.from(new Set(activities.map(a => a.appName))).join(', ')}`);
+      }
+    }
+
     for (let i = 0; i < activities.length; i++) {
       const activity = activities[i];
       const activityTime = new Date(activity.timestamp);
@@ -174,6 +212,9 @@ export class SessionClassifier {
       if (!sessionStartTime) {
         sessionStartTime = activityTime;
         currentSession = [activity];
+        if (DEBUG_LOGGING) {
+          console.log(`   Starting first session with ${activity.appName} at ${activityTime.toISOString()}`);
+        }
         continue;
       }
 
@@ -188,35 +229,65 @@ export class SessionClassifier {
         // Create boundary for current session
         if (currentSession.length > 0) {
           const lastActivity = currentSession[currentSession.length - 1];
-          boundaries.push({
+          const boundary = {
             startTime: sessionStartTime,
             endTime: new Date(lastActivity.timestamp),
             activities: [...currentSession]
-          });
+          };
+          
+          const duration = boundary.endTime.getTime() - boundary.startTime.getTime();
+          if (DEBUG_LOGGING) {
+            console.log(`   Creating boundary: ${sessionStartTime.toISOString()} to ${boundary.endTime.toISOString()} (${Math.round(duration / 1000)}s)`);
+          }
+          
+          boundaries.push(boundary);
         }
 
         // Start new session
         sessionStartTime = activityTime;
         currentSession = [activity];
+        if (DEBUG_LOGGING) {
+          console.log(`   Starting new session with ${activity.appName} at ${activityTime.toISOString()}`);
+        }
       } else {
         // Add to current session
         currentSession.push(activity);
+        if (DEBUG_LOGGING && currentSession.length % 5 === 0) {
+          console.log(`   Added activity to current session (${currentSession.length} activities)`);
+        }
       }
     }
 
     // Create final boundary
     if (currentSession.length > 0 && sessionStartTime) {
       const lastActivity = currentSession[currentSession.length - 1];
-      boundaries.push({
+      const boundary = {
         startTime: sessionStartTime,
         endTime: new Date(lastActivity.timestamp),
         activities: currentSession
-      });
+      };
+      
+      const duration = boundary.endTime.getTime() - boundary.startTime.getTime();
+      if (DEBUG_LOGGING) {
+        console.log(`   Creating final boundary: ${sessionStartTime.toISOString()} to ${boundary.endTime.toISOString()} (${Math.round(duration / 1000)}s)`);
+      }
+      
+      boundaries.push(boundary);
     }
 
-    return boundaries.filter(boundary => 
+    // Filter valid boundaries
+    const validBoundaries = boundaries.filter(boundary => 
       this.isValidSessionBoundary(boundary)
     );
+
+    if (DEBUG_LOGGING) {
+      console.log(`   Found ${boundaries.length} potential boundaries, ${validBoundaries.length} valid after filtering`);
+      if (boundaries.length > validBoundaries.length) {
+        console.log(`   Filtered out ${boundaries.length - validBoundaries.length} boundaries (likely too short)`);
+      }
+    }
+
+    return validBoundaries;
   }
 
   /**
@@ -789,4 +860,24 @@ export async function processActivitiesIntoSessions(
 ): Promise<ProcessingStats> {
   const classifier = createSessionClassifier(options);
   return await classifier.processActivities(activities, options);
+}
+
+/**
+ * Processes activities into sessions using Smart Session Processing
+ * 
+ * This function enables the enhanced session logic that prevents work session
+ * fragmentation through grace periods, contextual merging, and intelligent
+ * idle handling.
+ * 
+ * @param activities - Raw activity data to process
+ * @param options - Processing options
+ * @returns Promise resolving to processing statistics
+ */
+export async function processActivitiesWithSmartSessionProcessing(
+  activities: RawActivityData[],
+  options: ProcessingOptions = {}
+): Promise<ProcessingStats> {
+  const enhancedOptions = { ...options, useSmartSessions: true };
+  const classifier = createSessionClassifier(enhancedOptions);
+  return await classifier.processActivities(activities, enhancedOptions);
 }

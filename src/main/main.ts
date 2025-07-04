@@ -12,10 +12,12 @@
 
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
+import http from 'http';
 import { 
   initializeDatabase, 
   closeDatabaseConnection,
   checkDatabaseHealth,
+  getDatabaseConnection,
   getActivities,
   getSessionsByDate,
   updateSession,
@@ -26,10 +28,10 @@ import {
   clearAllActivityData
 } from '@/main/database/connection';
 import { 
-  startActivityLogging, 
-  stopActivityLogging,
-  isActivityLoggingActive
-} from '@/main/system-monitoring/activity-logger';
+  startMonitoring, 
+  stopMonitoring,
+  isMonitoringSystemActive
+} from '@/main/system-monitoring/index';
 import { IPC_CHANNELS } from '@/shared/types/activity-types';
 import type { 
   GetActivitiesByDateRequest,
@@ -52,6 +54,11 @@ import {
   DEFAULT_ACTIVITY_LIMIT
 } from '@/shared/constants/app-constants';
 import { processActivitiesIntoSessions } from '@/main/ai-integration/session-classifier';
+import { 
+  initializeWorkflowManager, 
+  cleanupWorkflowManager, 
+  getWorkflowManager 
+} from '@/main/automation/workflow-manager';
 
 // === GLOBAL STATE ===
 
@@ -90,7 +97,13 @@ function transformActivityData(rows: ActivityTableRow[]): ActivityData[] {
     windowTitle: row.window_title,
     duration: row.duration,
     formattedDuration: formatDuration(row.duration),
-    category: undefined // Will be added in Phase 2 with AI classification
+    activityLevel: row.activity_level,
+    interactionCount: row.interaction_count,
+    isProcessing: row.is_processing,
+    cpuUsage: row.cpu_usage,
+    category: undefined, // Will be added in Phase 2 with AI classification
+    sessionId: row.session_id,
+    isIdle: row.is_idle
   }));
 }
 
@@ -302,14 +315,14 @@ async function toggleMonitoring(): Promise<void> {
   try {
     if (isMonitoringPaused) {
       // Resume monitoring
-      await startActivityLogging();
+      await startMonitoring();
       isMonitoringPaused = false;
-      console.log('Activity monitoring resumed');
+      console.log('Enhanced monitoring resumed');
     } else {
       // Pause monitoring
-      await stopActivityLogging();
+      await stopMonitoring();
       isMonitoringPaused = true;
-      console.log('Activity monitoring paused');
+      console.log('Enhanced monitoring paused');
     }
     
     // Update tray menu to reflect new state
@@ -477,11 +490,52 @@ function setupIpcHandlers(): void {
     }
   });
 
+  // Enhanced monitoring handlers
+  ipcMain.handle('monitoring:get-status', async () => {
+    try {
+      const { getMonitoringStatus } = await import('@/main/system-monitoring/index');
+      return getMonitoringStatus();
+    } catch (error) {
+      console.error('Failed to get monitoring status:', error);
+      return { overall: false, enhancedActivityLogging: false, userInteractionMonitoring: false, resourceMonitoring: false };
+    }
+  });
+
+  ipcMain.handle('monitoring:get-current-data', async () => {
+    try {
+      const { getCurrentMonitoringData } = await import('@/main/system-monitoring/index');
+      return getCurrentMonitoringData();
+    } catch (error) {
+      console.error('Failed to get current monitoring data:', error);
+      return { currentSession: null, appActivityStates: {}, backgroundAppsState: {}, recentInteractions: [] };
+    }
+  });
+
+  ipcMain.handle('monitoring:get-app-activity-states', async () => {
+    try {
+      const { getAppActivityStates } = await import('@/main/system-monitoring/index');
+      return getAppActivityStates();
+    } catch (error) {
+      console.error('Failed to get app activity states:', error);
+      return {};
+    }
+  });
+
+  ipcMain.handle('monitoring:get-app-resource-usage', async (_, appName: string) => {
+    try {
+      const { getAppResourceUsage } = await import('@/main/system-monitoring/index');
+      return getAppResourceUsage(appName);
+    } catch (error) {
+      console.error('Failed to get app resource usage:', error);
+      return null;
+    }
+  });
+
   // AI/Ollama operation handlers
   ipcMain.handle('ollama:health-check', async () => {
     try {
       // Use Node.js http module for better compatibility
-      const http = require('http');
+      // Use imported http module for better compatibility
       
       if (DEBUG_LOGGING) {
         console.log('Starting Ollama health check...');
@@ -544,18 +598,12 @@ function setupIpcHandlers(): void {
   });
 
   // Monitoring control handlers
-  ipcMain.handle('monitoring:get-status', async () => {
-    return {
-      isActive: !isMonitoringPaused,
-      isPaused: isMonitoringPaused
-    };
-  });
 
   ipcMain.handle('monitoring:pause', async () => {
     try {
       isMonitoringPaused = true;
-      await stopActivityLogging();
-      console.log('Activity monitoring paused');
+      await stopMonitoring();
+      console.log('Enhanced monitoring paused');
       updateSystemTray();
     } catch (error) {
       console.error('Failed to pause monitoring:', error);
@@ -566,8 +614,8 @@ function setupIpcHandlers(): void {
   ipcMain.handle('monitoring:resume', async () => {
     try {
       isMonitoringPaused = false;
-      await startActivityLogging();
-      console.log('Activity monitoring resumed');
+      await startMonitoring();
+      console.log('Enhanced monitoring resumed');
       updateSystemTray();
     } catch (error) {
       console.error('Failed to resume monitoring:', error);
@@ -601,6 +649,115 @@ function setupIpcHandlers(): void {
     }
   });
 
+  // Workflow backup handlers
+  ipcMain.handle('workflow-backup:create', async (_, options) => {
+    try {
+      const { getWorkflowBackupManager } = await import('@/main/automation/workflow-backup');
+      const backupManager = getWorkflowBackupManager();
+      
+      if (DEBUG_LOGGING) {
+        console.log('Creating workflow backup with options:', options);
+      }
+      
+      const result = await backupManager.createBackup(options);
+      
+      if (DEBUG_LOGGING) {
+        console.log('Workflow backup created:', result);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to create workflow backup:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow-backup:list', async (_, options) => {
+    try {
+      const { getWorkflowBackupManager } = await import('@/main/automation/workflow-backup');
+      const backupManager = getWorkflowBackupManager();
+      
+      const result = await backupManager.listBackups(options?.location);
+      
+      if (DEBUG_LOGGING) {
+        console.log(`Found ${result.length} workflow backups`);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to list workflow backups:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow-backup:restore', async (_, options) => {
+    try {
+      const { getWorkflowBackupManager } = await import('@/main/automation/workflow-backup');
+      const backupManager = getWorkflowBackupManager();
+      
+      if (DEBUG_LOGGING) {
+        console.log('Restoring workflow backup:', options);
+      }
+      
+      const result = await backupManager.restoreFromBackup(options);
+      
+      if (DEBUG_LOGGING) {
+        console.log(`Restored ${result.length} workflows from backup`);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to restore workflow backup:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow-backup:delete', async (_, options) => {
+    try {
+      const { getWorkflowBackupManager } = await import('@/main/automation/workflow-backup');
+      const backupManager = getWorkflowBackupManager();
+      
+      if (DEBUG_LOGGING) {
+        console.log('Deleting workflow backup:', options);
+      }
+      
+      await backupManager.deleteBackup(options.backupId, options.location);
+      
+      if (DEBUG_LOGGING) {
+        console.log('Workflow backup deleted successfully');
+      }
+    } catch (error) {
+      console.error('Failed to delete workflow backup:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('dialog:select-directory', async (_, options) => {
+    try {
+      const { dialog } = await import('electron');
+      
+      if (!mainWindow) {
+        throw new Error('Main window not available');
+      }
+      
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: options?.title || 'Select Directory',
+        defaultPath: options?.defaultPath,
+        buttonLabel: options?.buttonLabel || 'Select'
+      });
+      
+      if (DEBUG_LOGGING) {
+        console.log('Directory dialog result:', result);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to show directory dialog:', error);
+      throw error;
+    }
+  });
+
   ipcMain.handle('settings:reset', async () => {
     try {
       await resetUserSettings();
@@ -625,7 +782,413 @@ function setupIpcHandlers(): void {
       throw error;
     }
   });
-  
+
+  // === WORKFLOW AUTOMATION HANDLERS (Phase 3) ===
+
+  // N8N Workflow Manager handlers
+  ipcMain.handle('workflow:get-status', async () => {
+    try {
+      const manager = getWorkflowManager();
+      return manager.getStatus();
+    } catch (error) {
+      console.error('Failed to get workflow status:', error);
+      return { isRunning: false, port: 5678 };
+    }
+  });
+
+  ipcMain.handle('workflow:execute', async (_, webhookPath: string, data?: any) => {
+    try {
+      const manager = getWorkflowManager();
+      return await manager.executeWorkflow(webhookPath, data);
+    } catch (error) {
+      console.error('Failed to execute workflow:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow:start-n8n', async () => {
+    try {
+      const manager = getWorkflowManager();
+      await manager.startN8N();
+    } catch (error) {
+      console.error('Failed to start N8N:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow:stop-n8n', async () => {
+    try {
+      const manager = getWorkflowManager();
+      await manager.stopN8N();
+    } catch (error) {
+      console.error('Failed to stop N8N:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow:trigger-session-end', async (_, sessionData) => {
+    try {
+      const manager = getWorkflowManager();
+      return await manager.executeWorkflow('session-end-file-organization', sessionData);
+    } catch (error) {
+      console.error('Failed to trigger session end workflow:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('workflow:trigger-daily-summary', async () => {
+    try {
+      const manager = getWorkflowManager();
+      return await manager.executeWorkflow('daily-focus-summary', {
+        date: new Date().toISOString(),
+        source: 'manual-trigger'
+      });
+    } catch (error) {
+      console.error('Failed to trigger daily summary workflow:', error);
+      throw error;
+    }
+  });
+
+  // === WINDOWS INTEGRATIONS HANDLERS (Phase 4) ===
+
+  // Windows Calendar Integration handlers
+  ipcMain.handle('windows-calendar:get-status', async () => {
+    try {
+      const { getCalendarIntegration } = await import('@/main/integrations/windows-calendar-integration');
+      const integration = getCalendarIntegration();
+      return integration.getStatus();
+    } catch (error) {
+      console.error('Failed to get calendar integration status:', error);
+      return { available: false, enabled: false, eventCount: 0 };
+    }
+  });
+
+  ipcMain.handle('windows-calendar:get-events', async (_, options) => {
+    try {
+      const { getCalendarIntegration } = await import('@/main/integrations/windows-calendar-integration');
+      const integration = getCalendarIntegration();
+      return await integration.getCalendarEvents(options);
+    } catch (error) {
+      console.error('Failed to get calendar events:', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('windows-calendar:initialize', async (_, config) => {
+    try {
+      const { initializeCalendarIntegration } = await import('@/main/integrations/windows-calendar-integration');
+      const integration = await initializeCalendarIntegration(config);
+      return integration.getStatus();
+    } catch (error) {
+      console.error('Failed to initialize calendar integration:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('windows-calendar:update-config', async (_, config) => {
+    try {
+      const { getCalendarIntegration } = await import('@/main/integrations/windows-calendar-integration');
+      const integration = getCalendarIntegration();
+      integration.updateConfig(config);
+    } catch (error) {
+      console.error('Failed to update calendar config:', error);
+      throw error;
+    }
+  });
+
+  // File Explorer Integration handlers
+  ipcMain.handle('windows-file-explorer:get-status', async () => {
+    try {
+      const { getFileExplorerIntegration } = await import('@/main/integrations/file-explorer-integration');
+      const integration = getFileExplorerIntegration();
+      return integration.getStatus();
+    } catch (error) {
+      console.error('Failed to get file explorer integration status:', error);
+      return { available: false, enabled: false, eventCount: 0 };
+    }
+  });
+
+  ipcMain.handle('windows-file-explorer:get-events', async (_, options) => {
+    try {
+      const { getFileExplorerIntegration } = await import('@/main/integrations/file-explorer-integration');
+      const integration = getFileExplorerIntegration();
+      return await integration.getFileAccessEvents(options);
+    } catch (error) {
+      console.error('Failed to get file access events:', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('windows-file-explorer:initialize', async (_, config) => {
+    try {
+      const { initializeFileExplorerIntegration } = await import('@/main/integrations/file-explorer-integration');
+      const integration = await initializeFileExplorerIntegration(config);
+      return integration.getStatus();
+    } catch (error) {
+      console.error('Failed to initialize file explorer integration:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('windows-file-explorer:update-config', async (_, config) => {
+    try {
+      const { getFileExplorerIntegration } = await import('@/main/integrations/file-explorer-integration');
+      const integration = getFileExplorerIntegration();
+      integration.updateConfig(config);
+    } catch (error) {
+      console.error('Failed to update file explorer config:', error);
+      throw error;
+    }
+  });
+
+  // Productivity Insights Engine handlers
+  ipcMain.handle('productivity-insights:generate', async (_, sessions, calendarEvents, fileEvents) => {
+    try {
+      const { getInsightsEngine } = await import('@/main/integrations/productivity-insights-engine');
+      const engine = getInsightsEngine();
+      return await engine.generateBatchInsights(sessions, calendarEvents, fileEvents);
+    } catch (error) {
+      console.error('Failed to generate productivity insights:', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('productivity-insights:generate-single', async (_, session, calendarEvents, fileEvents) => {
+    try {
+      const { getInsightsEngine } = await import('@/main/integrations/productivity-insights-engine');
+      const engine = getInsightsEngine();
+      return await engine.generateInsights(session, calendarEvents, fileEvents);
+    } catch (error) {
+      console.error('Failed to generate single productivity insight:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('productivity-insights:update-config', async (_, config) => {
+    try {
+      const { getInsightsEngine } = await import('@/main/integrations/productivity-insights-engine');
+      const engine = getInsightsEngine();
+      engine.updateConfig(config);
+    } catch (error) {
+      console.error('Failed to update insights config:', error);
+      throw error;
+    }
+  });
+
+  // Windows Integration Testing handlers
+  ipcMain.handle('windows-integrations:test-calendar', async () => {
+    try {
+      const { WindowsCalendarIntegration } = await import('@/main/integrations/windows-calendar-integration');
+      const testIntegration = new WindowsCalendarIntegration({ enabled: true });
+      await testIntegration.initialize();
+      const status = testIntegration.getStatus();
+      return status.available;
+    } catch (error) {
+      console.error('Calendar integration test failed:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('windows-integrations:test-file-explorer', async () => {
+    try {
+      const { FileExplorerIntegration } = await import('@/main/integrations/file-explorer-integration');
+      const testIntegration = new FileExplorerIntegration({ enabled: true });
+      await testIntegration.initialize();
+      const status = testIntegration.getStatus();
+      return status.available;
+    } catch (error) {
+      console.error('File explorer integration test failed:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('windows-integrations:clear-data', async () => {
+    try {
+      // Clear Windows integration data from database
+      const database = getDatabaseConnection();
+      database.exec('DELETE FROM windows_calendar_events');
+      database.exec('DELETE FROM windows_file_events');
+      database.exec('DELETE FROM productivity_insights');
+      return true;
+    } catch (error) {
+      console.error('Failed to clear Windows integration data:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('windows-integrations:get-data-summary', async () => {
+    try {
+      const database = getDatabaseConnection();
+      const calendarCount = database.prepare('SELECT COUNT(*) as count FROM windows_calendar_events').get() as { count: number };
+      const fileCount = database.prepare('SELECT COUNT(*) as count FROM windows_file_events').get() as { count: number };
+      const insightsCount = database.prepare('SELECT COUNT(*) as count FROM productivity_insights').get() as { count: number };
+      
+      return {
+        calendarEvents: calendarCount?.count || 0,
+        fileAccessEvents: fileCount?.count || 0,
+        productivityInsights: insightsCount?.count || 0
+      };
+    } catch (error) {
+      console.error('Failed to get Windows integration data summary:', error);
+      return {
+        calendarEvents: 0,
+        fileAccessEvents: 0,
+        productivityInsights: 0
+      };
+    }
+  });
+
+  // === ANALYTICS PATTERN ANALYSIS HANDLERS ===
+
+  ipcMain.handle('analytics:analyze-patterns', async (_, startDate: string, endDate: string) => {
+    try {
+      if (DEBUG_LOGGING) {
+        console.log('IPC: analytics:analyze-patterns called with:', { startDate, endDate });
+      }
+      
+      const { analyzePatterns } = await import('@/main/analytics/pattern-analyzer');
+      const result = await analyzePatterns(new Date(startDate), new Date(endDate));
+      
+      if (DEBUG_LOGGING) {
+        console.log('Analytics patterns result:', {
+          focusPatterns: result.focusPatterns.length,
+          distractionPatterns: result.distractionPatterns.length,
+          hasProductivityTrend: !!result.productivityTrend,
+          insights: result.insights.length
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to analyze patterns:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('analytics:get-focus-patterns', async (_, startDate: string, endDate: string) => {
+    try {
+      if (DEBUG_LOGGING) {
+        console.log('IPC: analytics:get-focus-patterns called with:', { startDate, endDate });
+      }
+      
+      const { createPatternAnalyzer } = await import('@/main/analytics/pattern-analyzer');
+      const analyzer = createPatternAnalyzer();
+      
+      // Get sessions for the date range
+      const sessions = await getSessionsByDate({
+        startDate: startDate,
+        endDate: endDate
+      });
+      
+      const focusPatterns = await analyzer.analyzeFocusPatterns(sessions, {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        type: 'custom'
+      });
+      
+      return focusPatterns;
+    } catch (error) {
+      console.error('Failed to get focus patterns:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('analytics:get-distraction-patterns', async (_, startDate: string, endDate: string) => {
+    try {
+      if (DEBUG_LOGGING) {
+        console.log('IPC: analytics:get-distraction-patterns called with:', { startDate, endDate });
+      }
+      
+      const { createPatternAnalyzer } = await import('@/main/analytics/pattern-analyzer');
+      const analyzer = createPatternAnalyzer();
+      
+      // Get sessions for the date range
+      const sessions = await getSessionsByDate({
+        startDate: startDate,
+        endDate: endDate
+      });
+      
+      const distractionPatterns = await analyzer.analyzeDistractionPatterns(sessions);
+      
+      return distractionPatterns;
+    } catch (error) {
+      console.error('Failed to get distraction patterns:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('analytics:get-productivity-trend', async (_, startDate: string, endDate: string) => {
+    try {
+      if (DEBUG_LOGGING) {
+        console.log('IPC: analytics:get-productivity-trend called with:', { startDate, endDate });
+      }
+      
+      const { createPatternAnalyzer } = await import('@/main/analytics/pattern-analyzer');
+      const analyzer = createPatternAnalyzer();
+      
+      // Get sessions for the date range
+      const sessions = await getSessionsByDate({
+        startDate: startDate,
+        endDate: endDate
+      });
+      
+      const productivityTrend = await analyzer.analyzeProductivityTrends(sessions, {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        type: 'custom'
+      });
+      
+      return productivityTrend;
+    } catch (error) {
+      console.error('Failed to get productivity trend:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('analytics:get-insights', async (_, startDate: string, endDate: string) => {
+    try {
+      if (DEBUG_LOGGING) {
+        console.log('IPC: analytics:get-insights called with:', { startDate, endDate });
+      }
+      
+      const { createPatternAnalyzer } = await import('@/main/analytics/pattern-analyzer');
+      const analyzer = createPatternAnalyzer();
+      
+      // Get sessions for the date range
+      const sessions = await getSessionsByDate({
+        startDate: startDate,
+        endDate: endDate
+      });
+      
+      // Get all analysis results
+      const focusPatterns = await analyzer.analyzeFocusPatterns(sessions, {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        type: 'custom'
+      });
+      
+      const distractionPatterns = await analyzer.analyzeDistractionPatterns(sessions);
+      
+      const productivityTrend = await analyzer.analyzeProductivityTrends(sessions, {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        type: 'custom'
+      });
+      
+      // Generate personalized insights
+      const insights = await analyzer.generatePersonalizedInsights(
+        focusPatterns,
+        distractionPatterns,
+        productivityTrend
+      );
+      
+      return insights;
+    } catch (error) {
+      console.error('Failed to get insights:', error);
+      throw error;
+    }
+  });
+
   if (DEBUG_LOGGING) {
     console.log('IPC handlers registered successfully');
   }
@@ -655,6 +1218,22 @@ async function initializeApp(): Promise<void> {
         
         if (allActivities.length > 0) {
           console.log('Latest activity:', allActivities[0]);
+          
+          // Check if enhanced fields are present
+          const latestActivity = allActivities[0];
+          const hasEnhancedFields = 
+            latestActivity.activity_level !== undefined &&
+            latestActivity.interaction_count !== undefined &&
+            latestActivity.is_processing !== undefined &&
+            latestActivity.cpu_usage !== undefined;
+          
+          console.log(`Enhanced fields present: ${hasEnhancedFields ? '✅ YES' : '❌ NO'}`);
+          
+          if (hasEnhancedFields) {
+            console.log('Enhanced monitoring features detected in database');
+          } else {
+            console.log('⚠️ Enhanced monitoring migration may not have been applied');
+          }
         } else {
           console.log('⚠️ No activities found in database');
         }
@@ -663,15 +1242,15 @@ async function initializeApp(): Promise<void> {
       }
     }
     
-    // Start activity logging
-    const monitoringStarted = await startActivityLogging();
+    // Start enhanced monitoring
+    const monitoringStarted = await startMonitoring();
     
     if (DEBUG_LOGGING) {
-      console.log(`Activity monitoring started: ${monitoringStarted ? '✅ OK' : '❌ FAILED'}`);
+      console.log(`Enhanced monitoring started: ${monitoringStarted ? '✅ OK' : '❌ FAILED'}`);
       
       // Check monitoring status
-      const isActive = isActivityLoggingActive();
-      console.log(`Activity logging active: ${isActive ? '✅ YES' : '❌ NO'}`);
+      const isActive = isMonitoringSystemActive();
+      console.log(`Enhanced monitoring active: ${isActive ? '✅ YES' : '❌ NO'}`);
     }
     
     // Create system tray
@@ -679,6 +1258,22 @@ async function initializeApp(): Promise<void> {
     
     // Setup IPC handlers
     setupIpcHandlers();
+
+    // Initialize workflow manager (Phase 3)
+    try {
+      // Temporarily disabled to avoid N8N startup issues
+      // await initializeWorkflowManager({
+      //   debug: DEBUG_LOGGING,
+      //   autoStart: true // Auto-start N8N with FocusFlare
+      // });
+      
+      if (DEBUG_LOGGING) {
+        console.log('⚠️ Workflow Manager initialization temporarily disabled');
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to initialize Workflow Manager:', error);
+      // Continue without workflow automation - not critical for core functionality
+    }
     
     // Auto-create and show window in development mode
     if (DEBUG_LOGGING) {
@@ -701,12 +1296,20 @@ async function initializeApp(): Promise<void> {
           console.log(`New activities in last 30 seconds: ${recentActivities.length}`);
           
           if (recentActivities.length > 0) {
-            console.log('✅ Activity logging is working!');
-            console.log('Recent activities:', recentActivities.slice(0, 3));
+            console.log('✅ Enhanced monitoring is working!');
+            console.log('Recent activities with enhanced data:', recentActivities.slice(0, 3));
+            
+            // Show enhanced monitoring information
+            const enhancedActivity = recentActivities[0];
+            console.log('Enhanced activity details:');
+            console.log(`  • Activity Level: ${enhancedActivity.activity_level}`);
+            console.log(`  • Interaction Count: ${enhancedActivity.interaction_count}`);
+            console.log(`  • Is Processing: ${enhancedActivity.is_processing}`);
+            console.log(`  • CPU Usage: ${enhancedActivity.cpu_usage}%`);
           } else {
             console.log('⚠️ No new activities logged in the last 30 seconds');
             console.log('This could mean:');
-            console.log('1. Activity logging is not working');
+            console.log('1. Enhanced monitoring is not working');
             console.log('2. No window changes occurred');
             console.log('3. Current app is excluded from tracking');
           }
@@ -726,8 +1329,11 @@ async function initializeApp(): Promise<void> {
  */
 async function cleanup(): Promise<void> {
   try {
-    // Stop activity logging
-    await stopActivityLogging();
+    // Stop enhanced monitoring
+    await stopMonitoring();
+    
+    // Cleanup workflow manager (Phase 3)
+    await cleanupWorkflowManager();
     
     // Close database connection
     closeDatabaseConnection();

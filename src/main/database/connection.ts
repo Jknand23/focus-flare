@@ -30,6 +30,11 @@ import type {
   RawActivityData
 } from '@/shared/types/activity-types';
 import { up as runMigration002 } from './migrations/002-add-sessions-schema';
+import { up as runMigration003 } from './migrations/003-enhanced-activity-tracking';
+import { up as runMigration004 } from './migrations/004-windows-integrations';
+import { DatabasePerformanceOptimizer } from './performance-optimizer';
+import { DataArchiver } from './data-archiver';
+import { MaintenanceScheduler } from './maintenance-scheduler';
 
 // === DATABASE INSTANCE ===
 
@@ -37,6 +42,12 @@ import { up as runMigration002 } from './migrations/002-add-sessions-schema';
 let database: Database.Database | null = null;
 /** Database file path */
 let dbPath: string = '';
+/** Performance optimizer instance */
+let performanceOptimizer: DatabasePerformanceOptimizer | null = null;
+/** Data archiver instance */
+let dataArchiver: DataArchiver | null = null;
+/** Maintenance scheduler instance */
+let maintenanceScheduler: MaintenanceScheduler | null = null;
 
 // === PREPARED STATEMENTS ===
 
@@ -123,11 +134,29 @@ export async function initializeDatabase(): Promise<boolean> {
     // Run Phase 2 migration (sessions schema)
     runMigration002(database);
     
+    // Run Phase 3 migration (enhanced activity tracking)
+    runMigration003(database);
+    
+    // Run Phase 4 migration (Windows integrations)
+    runMigration004(database);
+    
     // Prepare frequently used statements
     prepareStatements();
     
+    // Initialize performance optimization components
+    performanceOptimizer = new DatabasePerformanceOptimizer(database);
+    dataArchiver = new DataArchiver(database);
+    maintenanceScheduler = new MaintenanceScheduler(database, performanceOptimizer, dataArchiver);
+    
+    // Apply initial performance optimization
+    await performanceOptimizer.optimize();
+    
+    // Start maintenance scheduler
+    maintenanceScheduler.start();
+    
     if (DEBUG_LOGGING) {
       console.log(SUCCESS_MESSAGES.DB_CONNECTED);
+      console.log('Performance optimization components initialized');
     }
     
     return true;
@@ -145,8 +174,8 @@ function prepareStatements(): void {
   
   try {
     insertActivityStatement = database.prepare(`
-      INSERT INTO activities (timestamp, app_name, window_title, duration)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO activities (timestamp, app_name, window_title, duration, activity_level, interaction_count, is_processing, cpu_usage)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     getActivitiesStatement = database.prepare(`
@@ -197,11 +226,21 @@ export function getDatabaseConnection(): Database.Database {
 export async function closeDatabaseConnection(): Promise<void> {
   if (database) {
     try {
+      // Stop maintenance scheduler
+      if (maintenanceScheduler) {
+        maintenanceScheduler.stop();
+        maintenanceScheduler = null;
+      }
+      
       // Prepared statements are automatically finalized when database is closed
       
       // Close database connection
       database.close();
       database = null;
+      
+      // Clear optimization components
+      performanceOptimizer = null;
+      dataArchiver = null;
       
       // Reset prepared statements
       insertActivityStatement = null;
@@ -259,12 +298,7 @@ export async function checkDatabaseHealth(): Promise<boolean> {
  * 
  * @throws {Error} If required fields are missing or database operation fails
  */
-export async function insertActivity(activityData: {
-  appName: string;
-  windowTitle: string;
-  duration?: number;
-  timestamp?: Date;
-}): Promise<number> {
+export async function insertActivity(activityData: Omit<RawActivityData, 'id' | 'createdAt'>): Promise<number> {
   if (!database || !insertActivityStatement) {
     throw new Error('Database not initialized');
   }
@@ -274,14 +308,22 @@ export async function insertActivity(activityData: {
   }
   
   try {
-    const timestamp = activityData.timestamp || new Date();
+    const timestamp = activityData.timestamp;
     const duration = activityData.duration || 0;
+    const activityLevel = activityData.activityLevel || 'active';
+    const interactionCount = activityData.interactionCount || 0;
+    const isProcessing = activityData.isProcessing || false;
+    const cpuUsage = activityData.cpuUsage || 0;
     
     const result = insertActivityStatement.run(
       timestamp.toISOString(),
       activityData.appName,
       activityData.windowTitle || '',
-      duration
+      duration,
+      activityLevel,
+      interactionCount,
+      isProcessing ? 1 : 0,
+      cpuUsage
     );
     
     if (DEBUG_LOGGING) {
@@ -344,7 +386,13 @@ export function getActivities(options: {
        app_name: row.app_name,
        window_title: row.window_title,
        duration: row.duration,
-       created_at: row.created_at // Keep as ISO string as expected by ActivityTableRow
+       activity_level: row.activity_level || 'active',
+       interaction_count: row.interaction_count || 0,
+       is_processing: Boolean(row.is_processing),
+       cpu_usage: row.cpu_usage || 0,
+       created_at: row.created_at, // Keep as ISO string as expected by ActivityTableRow
+       session_id: row.session_id,
+       is_idle: Boolean(row.is_idle)
      }));
   } catch (error) {
     console.error('Failed to get activities:', error);
@@ -462,25 +510,48 @@ export function getSessionsByDate(request: GetSessionsByDateRequest): SessionDat
     const rows = stmt.all(startDate, endDate, limit) as SessionTableRow[];
     const sessions = transformSessionData(rows);
     
-    // Get activities for each session
-    for (const session of sessions) {
+    // Get activities for all sessions in one query to avoid N+1 problem
+    if (sessions.length > 0) {
+      const sessionIds = sessions.map(s => s.id);
+      const placeholders = sessionIds.map(() => '?').join(',');
+      
       const activityStmt = database.prepare(`
         SELECT * FROM activities 
-        WHERE session_id = ?
-        ORDER BY timestamp ASC
+        WHERE session_id IN (${placeholders})
+        ORDER BY session_id ASC, timestamp ASC
       `);
-      const activityRows = activityStmt.all(session.id) as ActivityTableRow[];
       
-      session.activities = activityRows.map(row => ({
-        id: row.id,
-        timestamp: new Date(row.timestamp),
-        appName: row.app_name,
-        windowTitle: row.window_title,
-        duration: row.duration,
-        formattedDuration: formatDuration(row.duration),
-        sessionId: row.session_id,
-        isIdle: row.is_idle
-      }));
+      const allActivityRows = activityStmt.all(...sessionIds) as ActivityTableRow[];
+      
+      // Group activities by session_id
+      const activitiesBySession = new Map<number, ActivityTableRow[]>();
+      for (const row of allActivityRows) {
+        if (row.session_id != null) {
+          if (!activitiesBySession.has(row.session_id)) {
+            activitiesBySession.set(row.session_id, []);
+          }
+          activitiesBySession.get(row.session_id)!.push(row);
+        }
+      }
+      
+      // Assign activities to sessions
+      for (const session of sessions) {
+        const activityRows = activitiesBySession.get(session.id) || [];
+        session.activities = activityRows.map(row => ({
+          id: row.id,
+          timestamp: new Date(row.timestamp),
+          appName: row.app_name,
+          windowTitle: row.window_title,
+          duration: row.duration,
+          formattedDuration: formatDuration(row.duration),
+          activityLevel: row.activity_level,
+          interactionCount: row.interaction_count,
+          isProcessing: row.is_processing,
+          cpuUsage: row.cpu_usage,
+          sessionId: row.session_id,
+          isIdle: row.is_idle
+        }));
+      }
     }
     
     return sessions;
@@ -567,6 +638,10 @@ export function getUnclassifiedActivities(hours: number = 24): RawActivityData[]
       appName: row.app_name,
       windowTitle: row.window_title,
       duration: row.duration,
+      activityLevel: row.activity_level,
+      interactionCount: row.interaction_count,
+      isProcessing: row.is_processing,
+      cpuUsage: row.cpu_usage,
       createdAt: new Date(row.created_at),
       sessionId: row.session_id,
       isIdle: row.is_idle
@@ -740,6 +815,49 @@ export async function clearAllActivityData(): Promise<{ activities: number; sess
   } catch (error) {
     console.error('Failed to clear activity data:', error);
     throw new Error(`Failed to clear activity data: ${error}`);
+  }
+}
+
+// === PERFORMANCE OPTIMIZATION EXPORTS ===
+
+/**
+ * Gets the performance optimizer instance
+ */
+export function getPerformanceOptimizer(): DatabasePerformanceOptimizer | null {
+  return performanceOptimizer;
+}
+
+/**
+ * Gets the data archiver instance
+ */
+export function getDataArchiver(): DataArchiver | null {
+  return dataArchiver;
+}
+
+/**
+ * Gets the maintenance scheduler instance
+ */
+export function getMaintenanceScheduler(): MaintenanceScheduler | null {
+  return maintenanceScheduler;
+}
+
+/**
+ * Forces an immediate maintenance run
+ */
+export async function runMaintenanceNow(): Promise<void> {
+  if (maintenanceScheduler) {
+    await maintenanceScheduler.forceMaintenanceRun();
+  }
+}
+
+/**
+ * Archives old data based on retention settings
+ */
+export async function archiveOldData(): Promise<void> {
+  if (dataArchiver) {
+    const userSettings = await getUserSettings();
+    const retentionDays = userSettings.dataRetentionDays || 180;
+    await dataArchiver.archiveOldData(retentionDays);
   }
 }
 

@@ -15,7 +15,12 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 10",
     "rebuild": "npx electron-rebuild",
     "test-ai": "tsx scripts/test-ai-classification.ts",
-    "test-ai-detailed": "tsx scripts/test-ai-classification.ts --detailed"
+    "test-ai-detailed": "tsx scripts/test-ai-classification.ts --detailed",
+    "test-enhanced-monitoring": "tsx scripts/test-enhanced-monitoring.ts",
+    "test-startup": "tsx scripts/test-app-startup.ts",
+    "test-running-app": "tsx scripts/test-running-app.ts",
+    "test-simple": "tsx scripts/test-simple-integration.ts",
+    "test-performance": "tsx scripts/test-performance-optimization.ts"
   },
   "keywords": [
     "electron",
@@ -33,6 +38,8 @@
     "@types/node": "^24.0.8",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
+    "@types/react-virtualized-auto-sizer": "^1.0.4",
+    "@types/react-window": "^1.8.8",
     "@typescript-eslint/eslint-plugin": "^7.2.0",
     "@typescript-eslint/parser": "^7.2.0",
     "@vitejs/plugin-react": "^4.2.1",
@@ -64,8 +71,14 @@
     "postcss": "^8.4.35",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-error-boundary": "^6.0.0",
+    "react-intersection-observer": "^9.5.3",
+    "react-virtualized-auto-sizer": "^1.0.20",
+    "react-window": "^1.8.8",
     "recharts": "^3.0.2",
+    "systeminformation": "^5.27.7",
     "tailwindcss": "^3.4.0",
+    "uiohook-napi": "^1.5.4",
     "zustand": "^4.5.0"
   },
   "build": {

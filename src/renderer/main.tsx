@@ -21,7 +21,7 @@ import { ThemeProvider } from '@/renderer/components/theme/ThemeProvider';
 /**
  * Main application component wrapper with global theme management
  */
-function App() {
+export function App() {
   return (
     <ThemeProvider>
       <div className="h-screen bg-gray-50 dark:bg-gray-900">

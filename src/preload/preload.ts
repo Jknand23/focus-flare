@@ -20,6 +20,83 @@ import type {
   ActivityData,
   SessionData
 } from '@/shared/types/activity-types';
+import type {
+  BackupMetadata,
+  CreateBackupOptions,
+  ListBackupsOptions,
+  RestoreBackupOptions,
+  DeleteBackupOptions,
+  BackupCreateResult,
+  N8NStatus,
+  N8NExecutionResult,
+  SelectDirectoryOptions,
+  SelectDirectoryResult
+} from '@/shared/types/workflow-types';
+import type {
+  WindowsCalendarEvent,
+  FileAccessEvent,
+  ProductivityInsights,
+  CalendarIntegrationConfig,
+  FileExplorerIntegrationConfig,
+  IntegrationStatus as _IntegrationStatus,
+  IntegrationDataSummary as _IntegrationDataSummary,
+  IntegrationQueryOptions
+} from '@/shared/types/windows-integration-types';
+
+// === TYPE DEFINITIONS ===
+
+/**
+ * User settings interface
+ */
+interface UserSettings {
+  focusSessionGoalMinutes: number;
+  themePreference: 'light' | 'dark' | 'system';
+  sessionColors?: Record<string, string>;
+  customTheme?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Analytics result types
+ */
+interface AnalyticsPattern {
+  type: string;
+  frequency: number;
+  timeRange: { start: string; end: string };
+  confidence: number;
+}
+
+interface ProductivityTrend {
+  date: string;
+  focusTime: number;
+  distractionTime: number;
+  score: number;
+}
+
+interface AnalyticsInsight {
+  type: string;
+  message: string;
+  data: Record<string, unknown>;
+  confidence: number;
+}
+
+/**
+ * Windows integration status (simplified)
+ */
+interface SimpleIntegrationStatus {
+  available: boolean;
+  enabled: boolean;
+  eventCount: number;
+}
+
+/**
+ * Windows integration data summary (simplified)
+ */
+interface SimpleIntegrationDataSummary {
+  calendarEvents: number;
+  fileAccessEvents: number;
+  productivityInsights: number;
+}
 
 // === EXPOSED API INTERFACE ===
 
@@ -47,6 +124,20 @@ interface ElectronAPI {
     classify: () => Promise<void>;
   };
   
+  // Pattern analytics operations
+  analytics: {
+    /** Analyze patterns for date range */
+    analyzePatterns: (startDate: string, endDate: string) => Promise<AnalyticsPattern[]>;
+    /** Get focus patterns only */
+    getFocusPatterns: (startDate: string, endDate: string) => Promise<AnalyticsPattern[]>;
+    /** Get distraction patterns only */
+    getDistractionPatterns: (startDate: string, endDate: string) => Promise<AnalyticsPattern[]>;
+    /** Get productivity trend only */
+    getProductivityTrend: (startDate: string, endDate: string) => Promise<ProductivityTrend[]>;
+    /** Get insights only */
+    getInsights: (startDate: string, endDate: string) => Promise<AnalyticsInsight[]>;
+  };
+  
   // System operations
   system: {
     /** Show the dashboard window */
@@ -55,6 +146,10 @@ interface ElectronAPI {
     hideDashboard: () => Promise<void>;
     /** Get application version */
     getVersion: () => Promise<string>;
+    /** Test Windows calendar integration availability */
+    testCalendarAccess: () => Promise<boolean>;
+    /** Test Windows file monitoring availability */
+    testFileMonitoring: () => Promise<boolean>;
   };
   
   // Database operations
@@ -82,13 +177,77 @@ interface ElectronAPI {
   // Settings operations
   settings: {
     /** Get user settings */
-    get: () => Promise<any>;
+    get: () => Promise<UserSettings>;
     /** Update user settings */
-    update: (updates: any) => Promise<void>;
+    update: (updates: Partial<UserSettings>) => Promise<void>;
     /** Reset settings to defaults */
     reset: () => Promise<void>;
     /** Clear all activity data */
     clearActivityData: () => Promise<{ activities: number; sessions: number }>;
+  };
+
+  // Workflow operations
+  workflows: {
+    /** Get N8N workflow status */
+    getStatus: () => Promise<N8NStatus>;
+    /** Execute N8N workflow */
+    execute: (webhookPath: string, data?: Record<string, unknown>) => Promise<N8NExecutionResult>;
+    /** Start N8N instance */
+    startN8N: () => Promise<void>;
+    /** Stop N8N instance */
+    stopN8N: () => Promise<void>;
+    /** Trigger session end workflow */
+    triggerSessionEnd: (sessionData: SessionData) => Promise<N8NExecutionResult>;
+    /** Trigger daily summary workflow */
+    triggerDailySummary: () => Promise<N8NExecutionResult>;
+  };
+
+  // Workflow backup operations
+  workflowBackup: {
+    /** Create a new workflow backup */
+    create: (options?: CreateBackupOptions) => Promise<BackupCreateResult>;
+    /** List all available backups */
+    list: (options?: ListBackupsOptions) => Promise<BackupMetadata[]>;
+    /** Restore workflows from backup */
+    restore: (options: RestoreBackupOptions) => Promise<string[]>;
+    /** Delete a backup */
+    delete: (options: DeleteBackupOptions) => Promise<void>;
+  };
+
+  // Dialog operations
+  dialog: {
+    /** Select directory using native dialog */
+    selectDirectory: (options?: SelectDirectoryOptions) => Promise<SelectDirectoryResult>;
+  };
+
+  // Windows integrations operations
+  windowsIntegrations: {
+    /** Get Windows calendar integration status */
+    getCalendarStatus: () => Promise<SimpleIntegrationStatus>;
+    /** Get Windows file explorer integration status */
+    getFileExplorerStatus: () => Promise<SimpleIntegrationStatus>;
+    /** Initialize Windows calendar integration */
+    initializeCalendar: (config: CalendarIntegrationConfig) => Promise<SimpleIntegrationStatus>;
+    /** Initialize Windows file explorer integration */
+    initializeFileExplorer: (config: FileExplorerIntegrationConfig) => Promise<SimpleIntegrationStatus>;
+    /** Update Windows calendar integration config */
+    updateCalendarConfig: (config: Partial<CalendarIntegrationConfig>) => Promise<void>;
+    /** Update Windows file explorer integration config */
+    updateFileExplorerConfig: (config: Partial<FileExplorerIntegrationConfig>) => Promise<void>;
+    /** Get Windows calendar events */
+    getCalendarEvents: (options: IntegrationQueryOptions) => Promise<WindowsCalendarEvent[]>;
+    /** Get Windows file access events */
+    getFileAccessEvents: (options: IntegrationQueryOptions) => Promise<FileAccessEvent[]>;
+    /** Generate productivity insights */
+    generateInsights: (sessions: SessionData[], calendarEvents: WindowsCalendarEvent[], fileEvents: FileAccessEvent[]) => Promise<ProductivityInsights[]>;
+    /** Generate single productivity insight */
+    generateSingleInsight: (session: SessionData, calendarEvents: WindowsCalendarEvent[], fileEvents: FileAccessEvent[]) => Promise<ProductivityInsights>;
+    /** Update productivity insights config */
+    updateInsightsConfig: (config: Record<string, unknown>) => Promise<void>;
+    /** Clear Windows integration data */
+    clearData: () => Promise<boolean>;
+    /** Get Windows integration data summary */
+    getDataSummary: () => Promise<SimpleIntegrationDataSummary>;
   };
 
   // Event operations
@@ -98,6 +257,9 @@ interface ElectronAPI {
     /** Remove event listener for IPC messages */
     removeEventListener: (channel: string, callback: (...args: any[]) => void) => void;
   };
+
+  // Generic IPC invoke method for flexibility
+  invoke: <T = any>(channel: string, ...args: any[]) => Promise<T>;
 }
 
 // === SECURE API IMPLEMENTATION ===
@@ -165,7 +327,17 @@ const systemAPI = {
   /**
    * Gets the application version
    */
-  getVersion: createSafeIpcInvoke<void, string>(IPC_CHANNELS.GET_APP_VERSION)
+  getVersion: createSafeIpcInvoke<void, string>(IPC_CHANNELS.GET_APP_VERSION),
+  
+  /**
+   * Tests Windows calendar integration availability
+   */
+  testCalendarAccess: createSafeIpcInvoke<void, boolean>('windows-integrations:test-calendar'),
+  
+  /**
+   * Tests Windows file monitoring availability
+   */
+  testFileMonitoring: createSafeIpcInvoke<void, boolean>('windows-integrations:test-file-explorer')
 };
 
 /**
@@ -262,6 +434,155 @@ const settingsAPI = {
   clearActivityData: createSafeIpcInvoke<void, { activities: number; sessions: number }>('settings:clear-activity-data')
 };
 
+/**
+ * Windows Integrations API - Safe wrappers for Windows integration operations
+ */
+const windowsIntegrationsAPI = {
+  /**
+   * Gets Windows calendar integration status
+   */
+  getCalendarStatus: createSafeIpcInvoke<void, { available: boolean; enabled: boolean; eventCount: number }>('windows-calendar:get-status'),
+  
+  /**
+   * Gets Windows file explorer integration status
+   */
+  getFileExplorerStatus: createSafeIpcInvoke<void, { available: boolean; enabled: boolean; eventCount: number }>('windows-file-explorer:get-status'),
+  
+  /**
+   * Initializes Windows calendar integration
+   */
+  initializeCalendar: createSafeIpcInvoke<any, { available: boolean; enabled: boolean; eventCount: number }>('windows-calendar:initialize'),
+  
+  /**
+   * Initializes Windows file explorer integration
+   */
+  initializeFileExplorer: createSafeIpcInvoke<any, { available: boolean; enabled: boolean; eventCount: number }>('windows-file-explorer:initialize'),
+  
+  /**
+   * Updates Windows calendar integration config
+   */
+  updateCalendarConfig: createSafeIpcInvoke<any, void>('windows-calendar:update-config'),
+  
+  /**
+   * Updates Windows file explorer integration config
+   */
+  updateFileExplorerConfig: createSafeIpcInvoke<any, void>('windows-file-explorer:update-config'),
+  
+  /**
+   * Gets Windows calendar events
+   */
+  getCalendarEvents: createSafeIpcInvoke<any, any[]>('windows-calendar:get-events'),
+  
+  /**
+   * Gets Windows file access events
+   */
+  getFileAccessEvents: createSafeIpcInvoke<any, any[]>('windows-file-explorer:get-events'),
+  
+  /**
+   * Generates productivity insights
+   */
+  generateInsights: async (sessions: any[], calendarEvents: any[], fileEvents: any[]): Promise<any[]> => {
+    try {
+      return await ipcRenderer.invoke('productivity-insights:generate', sessions, calendarEvents, fileEvents);
+    } catch (error) {
+      console.error('Windows integrations generate insights failed:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Generates single productivity insight
+   */
+  generateSingleInsight: async (session: any, calendarEvents: any[], fileEvents: any[]): Promise<any> => {
+    try {
+      return await ipcRenderer.invoke('productivity-insights:generate-single', session, calendarEvents, fileEvents);
+    } catch (error) {
+      console.error('Windows integrations generate single insight failed:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Updates productivity insights config
+   */
+  updateInsightsConfig: createSafeIpcInvoke<any, void>('productivity-insights:update-config'),
+  
+  /**
+   * Clears Windows integration data
+   */
+  clearData: createSafeIpcInvoke<void, boolean>('windows-integrations:clear-data'),
+  
+  /**
+   * Gets Windows integration data summary
+   */
+  getDataSummary: createSafeIpcInvoke<void, { calendarEvents: number; fileAccessEvents: number; productivityInsights: number }>('windows-integrations:get-data-summary')
+};
+
+/**
+ * Analytics API - Safe wrappers for pattern analytics operations
+ */
+const analyticsAPI = {
+  /**
+   * Analyzes patterns for date range
+   */
+  analyzePatterns: async (startDate: string, endDate: string): Promise<any> => {
+    try {
+      return await ipcRenderer.invoke('analytics:analyze-patterns', startDate, endDate);
+    } catch (error) {
+      console.error('Analytics analyze patterns failed:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Gets focus patterns only
+   */
+  getFocusPatterns: async (startDate: string, endDate: string): Promise<any> => {
+    try {
+      return await ipcRenderer.invoke('analytics:get-focus-patterns', startDate, endDate);
+    } catch (error) {
+      console.error('Analytics get focus patterns failed:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Gets distraction patterns only
+   */
+  getDistractionPatterns: async (startDate: string, endDate: string): Promise<any> => {
+    try {
+      return await ipcRenderer.invoke('analytics:get-distraction-patterns', startDate, endDate);
+    } catch (error) {
+      console.error('Analytics get distraction patterns failed:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Gets productivity trend only
+   */
+  getProductivityTrend: async (startDate: string, endDate: string): Promise<any> => {
+    try {
+      return await ipcRenderer.invoke('analytics:get-productivity-trend', startDate, endDate);
+    } catch (error) {
+      console.error('Analytics get productivity trend failed:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Gets insights only
+   */
+  getInsights: async (startDate: string, endDate: string): Promise<any> => {
+    try {
+      return await ipcRenderer.invoke('analytics:get-insights', startDate, endDate);
+    } catch (error) {
+      console.error('Analytics get insights failed:', error);
+      throw error;
+    }
+  }
+};
+
 // === IPC EVENT HANDLERS ===
 
 /**
@@ -337,12 +658,128 @@ const eventsAPI = {
 const electronAPI: ElectronAPI = {
   activities: activitiesAPI,
   sessions: sessionsAPI,
+  analytics: analyticsAPI,
   system: systemAPI,
   database: databaseAPI,
   ollama: ollamaAPI,
   monitoring: monitoringAPI,
   settings: settingsAPI,
-  events: eventsAPI
+  windowsIntegrations: windowsIntegrationsAPI,
+      workflows: {
+      /** Get N8N workflow status */
+      getStatus: async () => {
+        try {
+          return await ipcRenderer.invoke('workflow:get-status');
+        } catch (error) {
+          console.error('Workflows get status failed:', error);
+          throw error;
+        }
+      },
+      /** Execute N8N workflow */
+      execute: async (webhookPath: string, data?: any) => {
+        try {
+          return await ipcRenderer.invoke('workflow:execute', webhookPath, data);
+        } catch (error) {
+          console.error(`Workflows execute failed for webhook ${webhookPath}:`, error);
+          throw error;
+        }
+      },
+      /** Start N8N instance */
+      startN8N: async () => {
+        try {
+          await ipcRenderer.invoke('workflow:start-n8n');
+        } catch (error) {
+          console.error('Workflows start N8N failed:', error);
+          throw error;
+        }
+      },
+      /** Stop N8N instance */
+      stopN8N: async () => {
+        try {
+          await ipcRenderer.invoke('workflow:stop-n8n');
+        } catch (error) {
+          console.error('Workflows stop N8N failed:', error);
+          throw error;
+        }
+      },
+      /** Trigger session end workflow */
+      triggerSessionEnd: async (sessionData: any) => {
+        try {
+          return await ipcRenderer.invoke('workflow:trigger-session-end', sessionData);
+        } catch (error) {
+          console.error('Workflows trigger session end failed:', error);
+          throw error;
+        }
+      },
+      /** Trigger daily summary workflow */
+      triggerDailySummary: async () => {
+        try {
+          return await ipcRenderer.invoke('workflow:trigger-daily-summary');
+        } catch (error) {
+          console.error('Workflows trigger daily summary failed:', error);
+          throw error;
+        }
+      }
+    },
+    workflowBackup: {
+      /** Create a new workflow backup */
+      create: async (options?: { name?: string; location?: string }) => {
+        try {
+          return await ipcRenderer.invoke('workflow-backup:create', options);
+        } catch (error) {
+          console.error('Workflow backup create failed:', error);
+          throw error;
+        }
+      },
+      /** List all available backups */
+      list: async (options?: { location?: string }) => {
+        try {
+          return await ipcRenderer.invoke('workflow-backup:list', options);
+        } catch (error) {
+          console.error('Workflow backup list failed:', error);
+          throw error;
+        }
+      },
+      /** Restore workflows from backup */
+      restore: async (options: { backupId: string; location?: string }) => {
+        try {
+          return await ipcRenderer.invoke('workflow-backup:restore', options);
+        } catch (error) {
+          console.error('Workflow backup restore failed:', error);
+          throw error;
+        }
+      },
+      /** Delete a backup */
+      delete: async (options: { backupId: string; location?: string }) => {
+        try {
+          await ipcRenderer.invoke('workflow-backup:delete', options);
+        } catch (error) {
+          console.error('Workflow backup delete failed:', error);
+          throw error;
+        }
+      }
+    },
+    dialog: {
+      /** Select directory using native dialog */
+      selectDirectory: async (options?: { title?: string; defaultPath?: string; buttonLabel?: string }) => {
+        try {
+          return await ipcRenderer.invoke('dialog:select-directory', options);
+        } catch (error) {
+          console.error('Dialog select directory failed:', error);
+          throw error;
+        }
+      }
+    },
+  events: eventsAPI,
+  invoke: async <T = any>(channel: string, ...args: any[]): Promise<T> => {
+    try {
+      const result = await ipcRenderer.invoke(channel, ...args);
+      return result;
+    } catch (error) {
+      console.error(`IPC call failed for channel ${channel}:`, error);
+      throw error;
+    }
+  }
 };
 
 // Expose the API to renderer process through contextBridge

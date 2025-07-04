@@ -206,7 +206,11 @@ function processActivity(windowInfo: ActiveWindowInfo): void {
           appName: currentSession.appName,
           windowTitle: currentSession.windowTitle,
           duration: sessionDuration,
-          timestamp: currentSession.startTime
+          timestamp: currentSession.startTime,
+          activityLevel: 'active', // Default for legacy logger
+          interactionCount: 0,
+          isProcessing: false,
+          cpuUsage: 0.0
         });
         
         if (DEBUG_LOGGING) {
@@ -335,7 +339,11 @@ export async function stopActivityLogging(): Promise<void> {
           appName: currentSession.appName,
           windowTitle: currentSession.windowTitle,
           duration: sessionDuration,
-          timestamp: currentSession.startTime
+          timestamp: currentSession.startTime,
+          activityLevel: 'active', // Default for legacy logger
+          interactionCount: 0,
+          isProcessing: false,
+          cpuUsage: 0.0
         });
       }
       

@@ -116,6 +116,26 @@ export const MEMORY_WARNING_THRESHOLD = 200;
 /** CPU usage warning threshold (percentage) */
 export const CPU_WARNING_THRESHOLD = 10;
 
+// === ENHANCED MONITORING SETTINGS ===
+
+/** Resource monitoring interval for system usage tracking (milliseconds) */
+export const RESOURCE_MONITORING_INTERVAL = 10000;
+
+/** CPU usage threshold for determining active processing (percentage) */
+export const CPU_USAGE_THRESHOLD = 5.0;
+
+/** Network activity threshold for determining active processing (bytes/second) */
+export const NETWORK_ACTIVITY_THRESHOLD = 1024 * 10; // 10KB/s
+
+/** Disk activity threshold for determining active processing (operations/second) */
+export const DISK_ACTIVITY_THRESHOLD = 10;
+
+/** User interaction idle timeout (milliseconds) */
+export const USER_INTERACTION_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+/** Activity level check interval (milliseconds) */
+export const ACTIVITY_LEVEL_CHECK_INTERVAL = 30000; // 30 seconds
+
 // === DEVELOPMENT SETTINGS ===
 
 /** Enable debug logging in development */
@@ -158,4 +178,38 @@ export const SUCCESS_MESSAGES = {
   MONITORING_STARTED: 'Activity monitoring started',
   MONITORING_STOPPED: 'Activity monitoring stopped',
   SETTINGS_SAVED: 'Settings saved successfully'
+} as const;
+
+// === SMART SESSION CONFIGURATION ===
+
+/**
+ * Smart Session Processing feature flags and configuration
+ */
+export const SMART_SESSION_CONFIG = {
+  /** Whether Smart Session Processing is enabled by default */
+  ENABLED: true,
+  /** Grace period for brief app switches (30 seconds) */
+  GRACE_PERIOD_MS: 30 * 1000,
+  /** Minimum idle time to be considered a break (20 seconds) */
+  MINIMUM_BREAK_IDLE_MS: 20 * 1000,
+  /** Maximum idle time before definitely ending session (5 minutes) */
+  MAXIMUM_IDLE_MS: 5 * 60 * 1000,
+  /** Maximum time to look back for potential merging (15 minutes) */
+  MERGE_LOOKBACK_MS: 15 * 60 * 1000,
+  /** Confidence threshold for AI merging decisions */
+  AI_MERGE_CONFIDENCE_THRESHOLD: 0.7,
+  /** Maximum session duration before forced split (4 hours) */
+  MAX_SESSION_DURATION_MS: 4 * 60 * 60 * 1000
+} as const;
+
+/**
+ * Smart session processing messages for user feedback
+ */
+export const SMART_SESSION_MESSAGES = {
+  ENABLED: '🧠 Smart Session Processing enabled - preventing session fragmentation',
+  DISABLED: '📊 Using standard session processing',
+  GRACE_PERIOD_APPLIED: 'Grace period applied for brief app switch',
+  CONTEXTUAL_MERGE: 'Sessions merged based on contextual analysis',
+  AI_MERGE_SUCCESS: 'AI successfully merged related work sessions',
+  AI_MERGE_FAILED: 'Using rule-based merging due to AI unavailability'
 } as const; 

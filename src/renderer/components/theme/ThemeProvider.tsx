@@ -1,17 +1,19 @@
 /**
- * ThemeProvider - Global theme management for the application
+ * ThemeProvider - Enhanced global theme management for the application
  * 
  * Provides theme context and manages theme application at the document level.
- * Handles light, dark, and system theme preferences and applies them to the
- * entire application via CSS data attributes on the document root.
+ * Handles light, dark, system, and custom theme preferences. Integrates with
+ * the new ThemeManager for advanced theming capabilities including custom
+ * themes and accessibility features.
  * 
  * @module ThemeProvider
  * @author FocusFlare Team
- * @since 0.2.0
+ * @since 0.3.0
  */
 
 import React, { useEffect, createContext, useContext } from 'react';
 import { useThemeSettings } from '@/renderer/stores/settings-store';
+import { themeManager, type Theme } from '@/renderer/theme/theme-manager';
 
 // === TYPES ===
 
@@ -25,6 +27,14 @@ interface ThemeContextType {
   effectiveTheme: 'light' | 'dark';
   /** Session colors configuration */
   sessionColors: Record<string, string>;
+  /** Current custom theme (if any) */
+  customTheme?: Theme;
+  /** All available themes */
+  availableThemes: Theme[];
+  /** Apply a theme by ID */
+  applyTheme: (themeId: string) => boolean;
+  /** Create a new custom theme */
+  createCustomTheme: (name: string, description: string, baseTheme: Theme) => Theme;
 }
 
 /**
@@ -63,44 +73,86 @@ export function useTheme(): ThemeContextType {
  * 
  * Wraps the entire application and provides theme context. Automatically
  * applies theme changes to the document root and handles system theme
- * preference detection.
+ * preference detection. Integrates with ThemeManager for advanced theming.
  */
 export function ThemeProvider({ children }: ThemeProviderProps) {
-  const { themePreference, sessionColors } = useThemeSettings();
+  const { themePreference, sessionColors, customTheme, updateSettings } = useThemeSettings();
   
   // Calculate effective theme (resolve 'system' to actual theme)
   const [effectiveTheme, setEffectiveTheme] = React.useState<'light' | 'dark'>('light');
+  const [currentCustomTheme, setCurrentCustomTheme] = React.useState<Theme | undefined>();
+  const [availableThemes, setAvailableThemes] = React.useState<Theme[]>([]);
+  const [lastAppliedTheme, setLastAppliedTheme] = React.useState<string | null>(null);
+
+  // Load available themes
+  useEffect(() => {
+    setAvailableThemes(themeManager.getAllThemes());
+  }, []);
 
   /**
-   * Apply theme to document root and update effective theme
+   * Apply theme using theme manager or fallback to basic theme
    */
-  const applyTheme = React.useCallback(() => {
+  const applyThemeInternal = React.useCallback(() => {
     const root = document.documentElement;
+    let targetThemeId: string;
     
+    // Determine target theme ID
+    if (customTheme) {
+      targetThemeId = customTheme;
+    } else if (themePreference === 'system') {
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      targetThemeId = systemDark ? 'dark' : 'light';
+    } else {
+      targetThemeId = themePreference;
+    }
+    
+    // Skip if same theme is already applied
+    if (lastAppliedTheme === targetThemeId) {
+      return;
+    }
+    
+    // If custom theme is set, use theme manager
+    if (customTheme) {
+      const success = themeManager.applyTheme(customTheme);
+      if (success) {
+        const theme = themeManager.getTheme(customTheme);
+        setCurrentCustomTheme(theme || undefined);
+        setEffectiveTheme(theme?.type === 'dark' ? 'dark' : 'light');
+        setLastAppliedTheme(customTheme);
+        return;
+      }
+    }
+
+    // Fallback to basic theme preference
     if (themePreference === 'system') {
-      // Check system preference
       const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       const resolvedTheme = systemDark ? 'dark' : 'light';
+      themeManager.applyTheme(resolvedTheme);
       root.setAttribute('data-theme', resolvedTheme);
       setEffectiveTheme(resolvedTheme);
+      setLastAppliedTheme(resolvedTheme);
     } else {
+      themeManager.applyTheme(themePreference);
       root.setAttribute('data-theme', themePreference);
       setEffectiveTheme(themePreference);
+      setLastAppliedTheme(themePreference);
     }
-  }, [themePreference]);
+    
+    setCurrentCustomTheme(undefined);
+  }, [themePreference, customTheme, lastAppliedTheme]);
 
   // Apply theme when preference changes
   useEffect(() => {
-    applyTheme();
-  }, [applyTheme]);
+    applyThemeInternal();
+  }, [applyThemeInternal]);
 
   // Listen for system theme changes when in system mode
   useEffect(() => {
-    if (themePreference === 'system') {
+    if (themePreference === 'system' && !customTheme) {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
       
       const handleSystemThemeChange = () => {
-        applyTheme();
+        applyThemeInternal();
       };
       
       mediaQuery.addEventListener('change', handleSystemThemeChange);
@@ -109,13 +161,50 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         mediaQuery.removeEventListener('change', handleSystemThemeChange);
       };
     }
-  }, [themePreference, applyTheme]);
+  }, [themePreference, customTheme, applyThemeInternal]);
+
+  /**
+   * Apply theme by ID and save to settings
+   */
+  const applyTheme = React.useCallback((themeId: string): boolean => {
+    // Skip if same theme is already applied
+    if (lastAppliedTheme === themeId) {
+      return true;
+    }
+    
+    const success = themeManager.applyTheme(themeId);
+    if (success) {
+      updateSettings({ customTheme: themeId });
+      const theme = themeManager.getTheme(themeId);
+      setCurrentCustomTheme(theme || undefined);
+      setEffectiveTheme(theme?.type === 'dark' ? 'dark' : 'light');
+      setLastAppliedTheme(themeId);
+    }
+    return success;
+  }, [updateSettings, lastAppliedTheme]);
+
+  /**
+   * Create a new custom theme
+   */
+  const createCustomTheme = React.useCallback((
+    name: string, 
+    description: string, 
+    baseTheme: Theme
+  ): Theme => {
+    const newTheme = themeManager.createCustomTheme(name, description, baseTheme);
+    setAvailableThemes(themeManager.getAllThemes());
+    return newTheme;
+  }, []);
 
   // Create context value
   const contextValue: ThemeContextType = {
     themePreference,
     effectiveTheme,
-    sessionColors: sessionColors || {}
+    sessionColors: sessionColors || {},
+    customTheme: currentCustomTheme,
+    availableThemes,
+    applyTheme,
+    createCustomTheme
   };
 
   return (

@@ -17,6 +17,12 @@ import {
   ClassificationRequest,
   OllamaResponse 
 } from '@/shared/types/activity-types';
+import { 
+  detectApplicationContext, 
+  generateContextDescription,
+  // type ApplicationContext 
+} from '@/main/system-monitoring/context-detector';
+import { getDatabaseConnection } from '@/main/database/connection';
 
 /** Debug logging flag - enable for development/testing */
 const DEBUG_LOGGING = true;
@@ -255,6 +261,54 @@ export class OllamaClient {
   }
 
   /**
+   * Gets enhanced context using the context detector for improved AI classification
+   * 
+   * @param activities - Activity data for context analysis
+   * @returns Enhanced context description
+   */
+  private async getEnhancedActivityContext(activities: RawActivityData[]): Promise<string> {
+    try {
+      if (activities.length === 0) {
+        return 'No activities to analyze';
+      }
+
+      // Get context for the most relevant activities
+      const contextPromises = activities
+        .slice(0, 3) // Analyze top 3 activities for performance
+        .map(async activity => {
+          try {
+            const context = await detectApplicationContext(
+              activity.appName,
+              activity.windowTitle,
+              activity.duration / 1000, // Convert to seconds
+              activity.interactionCount || 0
+            );
+            return generateContextDescription(context);
+          } catch (error) {
+            if (DEBUG_LOGGING) {
+              console.warn('Context detection failed for activity:', activity.appName, error);
+            }
+            return `${activity.appName}: standard context`;
+          }
+        });
+
+      const contextDescriptions = await Promise.all(contextPromises);
+      const uniqueContexts = [...new Set(contextDescriptions)];
+
+      if (uniqueContexts.length === 0) {
+        return 'No enhanced context available';
+      }
+
+      return `Context Analysis: ${uniqueContexts.join('; ')}`;
+    } catch (error) {
+      if (DEBUG_LOGGING) {
+        console.warn('Enhanced context detection failed:', error);
+      }
+      return 'Enhanced context detection unavailable';
+    }
+  }
+
+  /**
    * Analyzes user feedback patterns to improve future classifications
    * 
    * @param activities - Activity data for analysis
@@ -301,7 +355,7 @@ export class OllamaClient {
     createdAt: Date;
   }>> {
     try {
-      const db = require('../database/connection').getDatabaseConnection();
+      const db = getDatabaseConnection();
       
       const query = `
         SELECT 
@@ -475,7 +529,7 @@ export class OllamaClient {
   }
 
   /**
-   * Classifies a batch of activities into session types
+   * Classifies a batch of activities into session types with enhanced context awareness
    * 
    * @param request - Classification request with activities and options
    * @returns Promise resolving to session classification results
@@ -504,10 +558,13 @@ export class OllamaClient {
     // Get learned context from user feedback
     const learnedContext = await this.getLearnedContext(request.activities);
 
+    // PHASE 3 ENHANCEMENT: Get enhanced context from context detector
+    const enhancedContext = await this.getEnhancedActivityContext(request.activities);
+
     const prompt = CLASSIFICATION_PROMPT
       .replace('{activities}', activitySummary)
       .replace('{duration}', duration.toString())
-      .replace('{context}', `${context}\n\nLearned Patterns: ${learnedContext}`)
+      .replace('{context}', `${context}\n\nLearned Patterns: ${learnedContext}\n\nEnhanced Context: ${enhancedContext}`)
       .replace('{startTime}', startTime);
 
     // Perform classification with retry logic
@@ -594,7 +651,7 @@ export class OllamaClient {
       }
 
       // Clean up response - remove markdown code blocks and extra whitespace
-      let cleanResponse = response.trim()
+      const cleanResponse = response.trim()
         .replace(/```json\s*/gi, '')
         .replace(/```\s*/g, '')
         .replace(/^\s*[\r\n]+/gm, '');

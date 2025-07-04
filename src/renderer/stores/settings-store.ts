@@ -266,6 +266,7 @@ export function useThemeSettings() {
   return useSettingsStore((state) => ({
     themePreference: state.settings.themePreference,
     sessionColors: state.settings.sessionColors,
+    customTheme: state.settings.customTheme,
     updateSettings: state.updateSettings
   }));
 }

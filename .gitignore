@@ -9,6 +9,7 @@ pnpm-debug.log*
 dist/
 build/
 out/
+dist-electron/
 
 # Environment variables
 .env
@@ -111,3 +112,15 @@ tmp/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Development artifacts - FocusFlare specific
+eslint-errors.txt
+n8n-workspace/
+scripts/test-*.ts
+scripts/test-*.js
+scripts/quick-session-check.js
+scripts/fix-unused-vars.ps1
+scripts/lint-fix.ps1
+QUICK_START_N8N.md
+docs/PERFORMANCE_OPTIMIZATION_SUMMARY.md
+docs/smart-session-processing.md
